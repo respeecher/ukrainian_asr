@@ -5,6 +5,7 @@ import re
 import string
 from dataclasses import dataclass
 from os.path import join as pjoin
+from shutil import copyfile
 from typing import Dict, List, Optional, Union
 
 import numpy as np
@@ -21,8 +22,8 @@ from transformers import (
     Wav2Vec2Processor,
 )
 
-EXP_FOLDER = "logdirs/test"
-BASE_MODEL_PATH = "fancy_path"
+EXP_FOLDER = "..."
+BASE_MODEL_PATH = "..."
 
 
 def show_random_elements(dataset, num_examples=10):
@@ -129,7 +130,7 @@ def main():
     )
 
     def remove_special_characters(batch):
-        batch["sentence"] = regex.sub("", batch["sentence"]).lower().strip()
+        batch["sentence"] = regex.sub("", batch["sentence"]).lower()
         return batch
 
     common_voice_uk = common_voice_uk.map(remove_special_characters)
@@ -160,6 +161,8 @@ def main():
     os.makedirs(EXP_FOLDER)
     with open(pjoin(EXP_FOLDER, "vocab.json"), "w") as vocab_file:
         json.dump(vocab_dict, vocab_file)
+    # Copy train.py to logdir
+    copyfile(__file__, pjoin(EXP_FOLDER, "train.py"))
     # Prepare Preprocessing
     tokenizer = Wav2Vec2CTCTokenizer(
         pjoin(EXP_FOLDER, "vocab.json"), unk_token="[UNK]", pad_token="[PAD]", word_delimiter_token="|"
@@ -226,7 +229,9 @@ def main():
         learning_rate=1e-4,
         weight_decay=0.005,
         warmup_steps=1000,
-        save_total_limit=2,
+        load_best_model_at_end=True,
+        metric_for_best_model="wer",
+        greater_is_better=True,
     )
     trainer = Trainer(
         model=model,
@@ -239,6 +244,21 @@ def main():
     )
     # Train !!!!!!!!!!!!!!!!!!
     trainer.train()
+    # Evaluate
+    def map_to_result(batch):
+        with torch.no_grad():
+            input_values = torch.tensor(batch["input_values"], device="cuda").unsqueeze(0)
+            logits = trainer.model(input_values).logits
+        pred_ids = torch.argmax(logits, dim=-1)
+        batch["pred_str"] = processor.batch_decode(pred_ids)[0]
+        batch["text"] = processor.decode(batch["labels"], group_tokens=False)
+        return batch
+
+    results = common_voice_uk["test"].map(map_to_result, remove_columns=common_voice_uk["test"].column_names)
+    wer_score = wer_metric.compute(predictions=results["pred_str"], references=results["text"])
+    with open(pjoin(EXP_FOLDER, "metric.json"), "w") as vocab_file:
+        json.dump({"WER": wer_score}, vocab_file)
+    print("Test WER: {:.3f}".format(wer_score))
 
 
 if __name__ == "__main__":
