@@ -103,6 +103,9 @@ class DataCollatorCTCWithPadding:
 
 
 def main():
+    # Fix seed
+    torch.manual_seed(42)
+    torch.backends.cuda.deterministic = True
     # Load dataset
     common_voice_uk = load_dataset("mozilla-foundation/common_voice_11_0", "uk")
     # Drop useless columns
@@ -220,7 +223,7 @@ def main():
         group_by_length=True,
         per_device_train_batch_size=32,
         evaluation_strategy="steps",
-        num_train_epochs=30,
+        num_train_epochs=45,
         fp16=True,
         gradient_checkpointing=True,
         save_steps=500,
@@ -231,7 +234,7 @@ def main():
         warmup_steps=1000,
         load_best_model_at_end=True,
         metric_for_best_model="wer",
-        greater_is_better=True,
+        greater_is_better=False,
     )
     trainer = Trainer(
         model=model,
@@ -254,10 +257,16 @@ def main():
         batch["text"] = processor.decode(batch["labels"], group_tokens=False)
         return batch
 
-    results = common_voice_uk["test"].map(map_to_result, remove_columns=common_voice_uk["test"].column_names)
+    # Do not use cache, because you may take results from previous run
+    results = common_voice_uk["test"].map(
+        map_to_result, remove_columns=common_voice_uk["test"].column_names, load_from_cache_file=False
+    )
     wer_score = wer_metric.compute(predictions=results["pred_str"], references=results["text"])
     with open(pjoin(EXP_FOLDER, "metric.json"), "w") as vocab_file:
-        json.dump({"WER": wer_score}, vocab_file)
+        json.dump({"WER": str(wer_score)}, vocab_file)
+    os.makedirs(os.path.join(EXP_FOLDER, "best_model"))
+    model.save_pretrained(os.path.join(EXP_FOLDER, "best_model"))
+    processor.save_pretrained(os.path.join(EXP_FOLDER, "best_model"))
     print("Test WER: {:.3f}".format(wer_score))
 
 
