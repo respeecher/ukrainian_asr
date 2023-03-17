@@ -23,8 +23,8 @@ from transformers import (
     get_linear_schedule_with_warmup,
 )
 
-EXP_FOLDER = "..."
-BASE_MODEL_PATH = "..."
+EXP_FOLDER = "logdirs/torch_asr_on_ukrainian_data2vec_cosinev3"
+BASE_MODEL_PATH = "Respeecher/ukrainian-data2vec"
 
 
 def show_random_elements(dataset, num_examples=10):
@@ -202,7 +202,7 @@ def run_train_valid(
             dataloader=train_torch_dataloader,
             inp_model=inp_model,
             inp_optimizer=inp_optimizer,
-            inp_scheduler=inp_scheduler,
+            # inp_scheduler=inp_scheduler,
             inp_scaler=inp_scaler,
             inp_processor=inp_processor,
             device=device,
@@ -229,6 +229,9 @@ def run_train_valid(
 
         valid_all_epoch_losses.append(valid_epoch_loss)
         valid_all_epoch_wers.append(valid_epoch_wer)
+
+        if inp_scheduler is not None:
+            inp_scheduler.step()
 
     if load_best_on_end:
         print(f"Loading best model with valid WER {best_metric}")
@@ -356,16 +359,19 @@ def main():
     # Setup Optimizer and Scheduler
     optimizer = torch.optim.AdamW(
         [
-            {"params": model.data2vec_audio.encoder.parameters(), "lr": 1e-5},
             {"params": model.lm_head.parameters(), "lr": 1e-3},
+            {"params": model.data2vec_audio.encoder.parameters(), "lr": 1e-5},
         ],
         weight_decay=0,
     )
-    n_epochs = 10
-    scheduler = get_linear_schedule_with_warmup(
-        optimizer=optimizer,
-        num_warmup_steps=int(0.05 * len(train_torch_dataloader) * n_epochs),
-        num_training_steps=len(train_torch_dataloader) * n_epochs,
+    n_epochs = 30
+    # scheduler = get_linear_schedule_with_warmup(
+    #     optimizer=optimizer,
+    #     num_warmup_steps=int(0.05 * len(train_torch_dataloader) * n_epochs),
+    #     num_training_steps=len(train_torch_dataloader) * n_epochs,
+    # )
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+        optimizer=optimizer, T_0=n_epochs, T_mult=1, eta_min=1e-7, last_epoch=-1
     )
     # Train
     (train_all_epoch_losses, train_all_epoch_wers, valid_all_epoch_losses, valid_all_epoch_wers) = run_train_valid(
@@ -393,15 +399,20 @@ def main():
         return batch
 
     # Do not use cache, because you may take previous results
-    results = common_voice_uk["test"].map(
+    wer_metric = load_metric("wer")
+    test_results = common_voice_uk["test"].map(
         map_to_result, remove_columns=common_voice_uk["test"].column_names, load_from_cache_file=False
     )
-    wer_metric = load_metric("wer")
-    wer_score = wer_metric.compute(predictions=results["pred_str"], references=results["text"])
+    test_wer_score = wer_metric.compute(predictions=test_results["pred_str"], references=test_results["text"])
+    valid_results = common_voice_uk["validation"].map(
+        map_to_result, remove_columns=common_voice_uk["validation"].column_names, load_from_cache_file=False
+    )
+    valid_wer_score = wer_metric.compute(predictions=valid_results["pred_str"], references=valid_results["text"])
     with open(pjoin(EXP_FOLDER, "metric.json"), "w") as vocab_file:
         json.dump(
             {
-                "WER": str(wer_score),
+                "TEST_WER": str(test_wer_score),
+                "VALID_WER": str(valid_wer_score),
                 "train_all_epoch_losses": [str(el) for el in train_all_epoch_losses],
                 "train_all_epoch_wers": [str(el) for el in train_all_epoch_wers],
                 "valid_all_epoch_losses": [str(el) for el in valid_all_epoch_losses],
@@ -411,7 +422,8 @@ def main():
         )
     model.save_pretrained(EXP_FOLDER)
     processor.save_pretrained(EXP_FOLDER)
-    print("Test WER: {:.3f}".format(wer_score))
+    print("Test WER: {:.3f}".format(test_wer_score))
+    print("Valid WER: {:.3f}".format(valid_wer_score))
 
 
 if __name__ == "__main__":

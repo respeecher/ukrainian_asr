@@ -18,3 +18,4 @@ soundfile==0.12.1
 librosa==0.10.0
 torchaudio==0.13.1
 pre-commit==2.19.0
+huggingface-hub==0.10.1

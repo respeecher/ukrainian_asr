@@ -22,8 +22,8 @@ from transformers import (
     Wav2Vec2Processor,
 )
 
-EXP_FOLDER = "..."
-BASE_MODEL_PATH = "..."
+EXP_FOLDER = "logdirs/hf_asr_on_ukrainian_data2vec"
+BASE_MODEL_PATH = "Respeecher/ukrainian-data2vec"
 
 
 def show_random_elements(dataset, num_examples=10):
@@ -223,7 +223,7 @@ def main():
         group_by_length=True,
         per_device_train_batch_size=32,
         evaluation_strategy="steps",
-        num_train_epochs=45,
+        num_train_epochs=30,
         fp16=True,
         gradient_checkpointing=True,
         save_steps=500,
@@ -258,16 +258,21 @@ def main():
         return batch
 
     # Do not use cache, because you may take results from previous run
-    results = common_voice_uk["test"].map(
+    test_results = common_voice_uk["test"].map(
         map_to_result, remove_columns=common_voice_uk["test"].column_names, load_from_cache_file=False
     )
-    wer_score = wer_metric.compute(predictions=results["pred_str"], references=results["text"])
+    test_wer_score = wer_metric.compute(predictions=test_results["pred_str"], references=test_results["text"])
+    valid_results = common_voice_uk["validation"].map(
+        map_to_result, remove_columns=common_voice_uk["validation"].column_names, load_from_cache_file=False
+    )
+    valid_wer_score = wer_metric.compute(predictions=valid_results["pred_str"], references=valid_results["text"])
     with open(pjoin(EXP_FOLDER, "metric.json"), "w") as vocab_file:
-        json.dump({"WER": str(wer_score)}, vocab_file)
+        json.dump({"TEST_WER": str(test_wer_score), "VALID_WER": str(valid_wer_score)}, vocab_file)
     os.makedirs(os.path.join(EXP_FOLDER, "best_model"))
     model.save_pretrained(os.path.join(EXP_FOLDER, "best_model"))
     processor.save_pretrained(os.path.join(EXP_FOLDER, "best_model"))
-    print("Test WER: {:.3f}".format(wer_score))
+    print("Test WER: {:.3f}".format(test_wer_score))
+    print("Valid WER: {:.3f}".format(valid_wer_score))
 
 
 if __name__ == "__main__":

@@ -12,3 +12,15 @@
 ```bash
 conda env create -f environment.yaml
 ```
+
+## Train
+
+```bash
+CUDA_VISIBLE_DEVICES="{gpu}" python torch_train.py
+```
+
+## Results
+
+Best model can be found in `logdirs/torch_asr_on_ukrainian_data2vec_cosinev3/best_model`
+
+Metric JSON can be found in `logdirs/torch_asr_on_ukrainian_data2vec_cosinev3/metric.json`
