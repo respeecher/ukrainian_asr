@@ -1,4 +1,6 @@
-# ukranian_asr
+# Ukrainian ASR from Respeecher
+
+Training code for a Ukrainian ASR system is based on the [Data2Vec model](https://huggingface.co/Respeecher/ukrainian-data2vec-asr), which was published by [Respeecher](https://www.respeecher.com/). Respeecher provides Hollywood-quality speech-to-speech and text-to-speech AI voices to businesses and various types of content creators.
 
 # Setup Working Environment
 
